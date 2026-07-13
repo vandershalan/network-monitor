@@ -1,0 +1,46 @@
+{
+	"Name": "NetworkMonitor",
+	"Version": "0.1.0.0",
+	"Author": "shalan",
+	"Actions": [
+		{
+			"Name": "Latency Monitor",
+			"UUID": "com.shalan.networkmonitor.latency",
+			"Icon": "imgs/actions/latency/key",
+			"Tooltip": "Continuously pings a host and displays latency (ms).",
+			"PropertyInspectorPath": "ui/network-latency.html",
+			"Controllers": [
+				"Keypad"
+			],
+			"States": [
+				{
+					"Image": "imgs/actions/latency/key",
+					"TitleAlignment": "middle"
+				}
+			]
+		}
+	],
+	"Category": "NetworkMonitor",
+	"CategoryIcon": "imgs/plugin/category-icon",
+	"CodePath": "bin/plugin.js",
+	"Description": "Display network latency on a Stream Deck key.",
+	"Icon": "imgs/plugin/marketplace",
+	"SDKVersion": 2,
+	"Software": {
+		"MinimumVersion": "6.4"
+	},
+	"OS": [
+		{
+			"Platform": "mac",
+			"MinimumVersion": "12"
+		},
+		{
+			"Platform": "windows",
+			"MinimumVersion": "10"
+		}
+	],
+	"Nodejs": {
+		"Version": "20"
+	},
+	"UUID": "com.shalan.networkmonitor"
+}

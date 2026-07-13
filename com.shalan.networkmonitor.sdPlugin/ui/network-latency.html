@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head lang="en">
+    <title>Network Latency Monitor Settings</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="https://sdpi-components.dev/releases/v3/sdpi-components.js"></script>
+</head>
+
+<body>
+    <!--
+        Learn more about property inspector components at https://sdpi-components.dev/docs/components
+    -->
+    <sdpi-item label="Host">
+        <sdpi-textfield setting="targetHost" placeholder="8.8.8.8 or example.com"></sdpi-textfield>
+    </sdpi-item>
+
+    <sdpi-item label="Method">
+        <sdpi-select setting="method" default="tcp">
+            <option value="tcp">TCP connect (recommended)</option>
+            <option value="ping">Ping (ICMP, may be blocked)</option>
+        </sdpi-select>
+    </sdpi-item>
+
+    <sdpi-item label="Port (TCP)">
+        <!-- sdpi-number is not available in all sdpi-components builds; use textfield -->
+        <sdpi-textfield setting="tcpPort" placeholder="443"></sdpi-textfield>
+    </sdpi-item>
+
+    <sdpi-item label="Timeout (ms)">
+        <sdpi-range setting="timeoutMs" min="250" max="5000" step="250" default="1500" showlabels></sdpi-range>
+    </sdpi-item>
+
+    <sdpi-item label="Update interval (ms)">
+        <sdpi-range setting="updateIntervalMs" min="250" max="5000" step="250" default="1000" showlabels></sdpi-range>
+    </sdpi-item>
+</body>
+
+</html>

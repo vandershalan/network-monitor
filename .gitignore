@@ -1,0 +1,21 @@
+# Node.js
+node_modules/
+
+# Stream Deck generated and runtime files
+*.sdPlugin/bin/
+*.sdPlugin/logs/
+*.sdPlugin/node_modules/
+*.sdPlugin/package-lock.json
+*.sdPlugin/.DS_Store
+
+# Logs and source maps
+*.log
+*.map
+
+# macOS metadata
+.DS_Store
+**/.DS_Store
+
+# Experimental projects
+latencyplug/
+nettest/
