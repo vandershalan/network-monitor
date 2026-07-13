@@ -53,6 +53,16 @@ Copy `com.shalan.networkmonitor.sdPlugin` to the Stream Deck plugins directory:
 
 Restart Stream Deck after copying the plugin.
 
+### Installation for development (via npx)
+
+You can link (install) the plugin using Stream Deck CLI without installing it globally:
+
+```bash
+npx -y @elgato/cli@latest streamdeck link com.shalan.networkmonitor.sdPlugin
+```
+
+Restart Stream Deck after linking the plugin.
+
 ## Privacy
 
 The plugin performs latency measurements to the host configured by the user.
