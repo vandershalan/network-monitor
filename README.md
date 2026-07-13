@@ -61,7 +61,11 @@ You can link (install) the plugin using Stream Deck CLI without installing it gl
 npx -y @elgato/cli@latest streamdeck link com.shalan.networkmonitor.sdPlugin
 ```
 
-Restart Stream Deck after linking the plugin.
+Then restart the plugin (or Stream Deck) to load changes:
+
+```bash
+npx -y @elgato/cli@latest streamdeck restart com.shalan.networkmonitor
+```
 
 ## Privacy
 
