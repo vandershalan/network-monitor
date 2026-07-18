@@ -7,10 +7,32 @@ and a rolling latency chart directly on a Stream Deck key.
 
 - TCP connection latency measurement (recommended)
 - Optional ICMP ping measurement
-- Configurable host, TCP port, timeout, and update interval
-- Color-coded latency chart refreshed every second by default
+- Configurable host, TCP port, timeout, measure interval, and chart update interval
+- Color-coded latency chart with EMA smoothing (default: measure every 500 ms, one averaged point every 1 s)
 - In-memory chart rendering without temporary image files
 - macOS and Windows support
+
+## Settings
+
+Configure each key in the Stream Deck Property Inspector:
+
+| Setting | Default | Description |
+|---|---|---|
+| **Host** | `8.8.8.8` | Hostname or IP address to probe |
+| **Method** | TCP connect | `TCP connect` (recommended) or `Ping` (ICMP; may be blocked by the network) |
+| **Port (TCP)** | `443` | Destination port for TCP connect measurements (ignored for Ping) |
+| **Timeout** | `1500 ms` | Max wait for a single measurement (`250`–`5000` ms) |
+| **Measure every** (M) | `500 ms` | How often the plugin probes the network (`250`–`5000` ms) |
+| **Update chart every** (U) | `1000 ms` | How often one chart point is appended and the key is redrawn (`250`–`5000` ms) |
+
+### Measure vs update
+
+M and U are independent:
+
+- **M ≤ U** (e.g. M=`500 ms`, U=`1000 ms`) — probes more often than the chart updates. Samples collected during each U window are averaged into **one** chart point.
+- **M > U** (e.g. M=`1000 ms`, U=`250 ms`) — chart updates more often than probes. The last measurement is repeated on consecutive points until the next probe (so several points share the same value).
+
+The chart line is additionally smoothed with an exponential moving average (EMA). Key title color follows latency thresholds: green below 100 ms, yellow below 200 ms, red otherwise (or on error).
 
 ## Requirements
 

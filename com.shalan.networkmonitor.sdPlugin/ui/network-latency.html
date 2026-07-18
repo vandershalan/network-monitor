@@ -6,12 +6,63 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script src="https://sdpi-components.dev/releases/v3/sdpi-components.js"></script>
+    <style>
+        .range-row {
+            display: grid;
+            grid-template-columns: 2.5em 1fr 2.5em 4.75em;
+            align-items: center;
+            column-gap: 8px;
+            width: 100%;
+        }
+
+        .range-bound {
+            color: #969696;
+            font-size: 11px;
+        }
+
+        .range-bound.max {
+            text-align: right;
+        }
+
+        .range-row input[type="range"] {
+            width: 100%;
+            margin: 0;
+            height: 22px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+        }
+
+        .range-row input[type="range"]::-webkit-slider-runnable-track {
+            height: 5px;
+            border: solid 1px #3d3d3d;
+            background: #636363;
+            border-radius: 3px;
+        }
+
+        .range-row input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            margin-top: -4px;
+            border-radius: 50%;
+            background: #e6e6e6;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .range-value {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            color: #dfdfdf;
+            white-space: nowrap;
+            font-size: 12px;
+        }
+    </style>
 </head>
 
 <body>
-    <!--
-        Learn more about property inspector components at https://sdpi-components.dev/docs/components
-    -->
     <sdpi-item label="Host">
         <sdpi-textfield setting="targetHost" placeholder="8.8.8.8 or example.com"></sdpi-textfield>
     </sdpi-item>
@@ -24,17 +75,158 @@
     </sdpi-item>
 
     <sdpi-item label="Port (TCP)">
-        <!-- sdpi-number is not available in all sdpi-components builds; use textfield -->
         <sdpi-textfield setting="tcpPort" placeholder="443"></sdpi-textfield>
     </sdpi-item>
 
-    <sdpi-item label="Timeout (ms)">
-        <sdpi-range setting="timeoutMs" min="250" max="5000" step="250" default="1500" showlabels></sdpi-range>
+    <sdpi-item label="Timeout">
+        <div class="range-row">
+            <span class="range-bound">250</span>
+            <input type="range" data-setting="timeoutMs" min="250" max="5000" step="250" value="1500" />
+            <span class="range-bound max">5000</span>
+            <span class="range-value" data-for="timeoutMs">1500 ms</span>
+        </div>
     </sdpi-item>
 
-    <sdpi-item label="Update interval (ms)">
-        <sdpi-range setting="updateIntervalMs" min="250" max="5000" step="250" default="1000" showlabels></sdpi-range>
+    <sdpi-item label="Measure every">
+        <div class="range-row">
+            <span class="range-bound">250</span>
+            <input type="range" data-setting="measureIntervalMs" min="250" max="5000" step="250" value="500" />
+            <span class="range-bound max">5000</span>
+            <span class="range-value" data-for="measureIntervalMs">500 ms</span>
+        </div>
     </sdpi-item>
+
+    <sdpi-item label="Update chart every">
+        <div class="range-row">
+            <span class="range-bound">250</span>
+            <input type="range" data-setting="displayIntervalMs" min="250" max="5000" step="250" value="1000" />
+            <span class="range-bound max">5000</span>
+            <span class="range-value" data-for="displayIntervalMs">1000 ms</span>
+        </div>
+    </sdpi-item>
+
+    <script>
+        (function () {
+            const DEFAULTS = {
+                timeoutMs: 1500,
+                measureIntervalMs: 500,
+                displayIntervalMs: 1000
+            };
+            const RANGE_KEYS = ['timeoutMs', 'measureIntervalMs', 'displayIntervalMs'];
+
+            /** @type {Record<string, unknown>} */
+            let settingsCache = { ...DEFAULTS };
+            let suppressApply = false;
+            let dragging = false;
+
+            function extractSettings(payload) {
+                if (!payload || typeof payload !== 'object') return {};
+                if (payload.settings && typeof payload.settings === 'object') return payload.settings;
+                return payload;
+            }
+
+            function setLabel(key, value) {
+                const el = document.querySelector('[data-for="' + key + '"]');
+                if (el) el.textContent = String(value) + ' ms';
+            }
+
+            function setInputValue(key, value) {
+                const input = document.querySelector('input[data-setting="' + key + '"]');
+                if (!input) return;
+                if (input.valueAsNumber !== value) {
+                    input.value = String(value);
+                }
+                setLabel(key, value);
+            }
+
+            function applyRangesFromCache() {
+                RANGE_KEYS.forEach(function (key) {
+                    const n = Number(settingsCache[key]);
+                    setInputValue(key, Number.isFinite(n) ? n : DEFAULTS[key]);
+                });
+            }
+
+            function persist(client) {
+                suppressApply = true;
+                RANGE_KEYS.forEach(function (key) {
+                    const input = document.querySelector('input[data-setting="' + key + '"]');
+                    if (input) settingsCache[key] = input.valueAsNumber;
+                });
+                client.setSettings({ ...settingsCache });
+                window.setTimeout(function () {
+                    suppressApply = false;
+                }, 300);
+            }
+
+            function bindRanges(client) {
+                document.querySelectorAll('input[data-setting]').forEach(function (input) {
+                    const key = input.dataset.setting;
+
+                    input.addEventListener('pointerdown', function () {
+                        dragging = true;
+                    });
+
+                    input.addEventListener('pointerup', function () {
+                        dragging = false;
+                    });
+
+                    input.addEventListener('input', function () {
+                        const value = input.valueAsNumber;
+                        settingsCache[key] = value;
+                        setLabel(key, value);
+                    });
+
+                    // Save only when the user finishes adjusting this slider.
+                    input.addEventListener('change', function () {
+                        const value = input.valueAsNumber;
+                        settingsCache[key] = value;
+                        setLabel(key, value);
+                        dragging = false;
+                        persist(client);
+                    });
+                });
+            }
+
+            async function init() {
+                const client = SDPIComponents.streamDeckClient;
+                bindRanges(client);
+
+                try {
+                    const payload = await client.getSettings();
+                    settingsCache = { ...DEFAULTS, ...extractSettings(payload) };
+                } catch (e) {
+                    settingsCache = { ...DEFAULTS };
+                }
+                applyRangesFromCache();
+
+                client.didReceiveSettings.subscribe(function (ev) {
+                    const incoming = extractSettings(ev.payload);
+
+                    // While dragging / right after our own save, don't yank slider positions.
+                    if (suppressApply || dragging) {
+                        RANGE_KEYS.forEach(function (key) {
+                            delete incoming[key];
+                        });
+                        settingsCache = { ...settingsCache, ...incoming };
+                        return;
+                    }
+
+                    settingsCache = { ...settingsCache, ...incoming };
+                    applyRangesFromCache();
+                });
+            }
+
+            function start() {
+                if (!(window.SDPIComponents && SDPIComponents.streamDeckClient)) {
+                    window.setTimeout(start, 50);
+                    return;
+                }
+                init();
+            }
+
+            start();
+        })();
+    </script>
 </body>
 
 </html>
