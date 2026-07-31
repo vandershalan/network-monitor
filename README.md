@@ -8,7 +8,7 @@ and a rolling latency chart directly on a Stream Deck key.
 - TCP connection latency measurement (recommended)
 - Optional ICMP ping measurement
 - Configurable host, TCP port, timeout, measure interval, and chart update interval
-- Color-coded latency chart with EMA smoothing (default: measure every 500 ms, one averaged point every 1 s)
+- Color-coded latency chart (default: measure every 500 ms, one averaged point every 1 s)
 - In-memory chart rendering without temporary image files
 - macOS and Windows support
 
@@ -32,7 +32,7 @@ M and U are independent:
 - **M ≤ U** (e.g. M=`500 ms`, U=`1000 ms`) — probes more often than the chart updates. Samples collected during each U window are averaged into **one** chart point.
 - **M > U** (e.g. M=`1000 ms`, U=`250 ms`) — chart updates more often than probes. The last measurement is repeated on consecutive points until the next probe (so several points share the same value).
 
-The chart line is additionally smoothed with an exponential moving average (EMA). Key title color follows latency thresholds: green below 100 ms, yellow below 200 ms, red otherwise (or on error).
+Key title color follows latency thresholds: green below 100 ms, yellow below 200 ms, red otherwise (or on error).
 
 ## Requirements
 

@@ -24,8 +24,6 @@ export class NetworkLatencyMonitor extends SingletonAction<LatencySettings> {
     private sampleBuffer: number[] = [];
     /** Most recent measurement (used when M > U to repeat the same value). */
     private lastSample: number | null = null;
-    /** EMA state for chart smoothing (null until first valid sample). */
-    private smoothedLatency: number | null = null;
     private maxHistoryLength: number = 60;
     private tempDir: string = path.join(os.tmpdir(), 'networkmonitor');
     private evenOdd = '0';
@@ -258,7 +256,6 @@ export class NetworkLatencyMonitor extends SingletonAction<LatencySettings> {
         this.latencyHistory = [];
         this.sampleBuffer = [];
         this.lastSample = null;
-        this.smoothedLatency = null;
         this.latestLatency = -1;
         this.pingBuffer = '';
     }
@@ -384,20 +381,7 @@ export class NetworkLatencyMonitor extends SingletonAction<LatencySettings> {
     }
 
     private addLatencyToHistory(latency: number) {
-        // Exponential moving average softens jitter on the chart without a settings knob.
-        let point = latency;
-        if (latency < 0) {
-            this.smoothedLatency = null;
-        } else if (this.smoothedLatency == null) {
-            this.smoothedLatency = latency;
-            point = latency;
-        } else {
-            this.smoothedLatency =
-                CHART_SMOOTHING_ALPHA * latency + (1 - CHART_SMOOTHING_ALPHA) * this.smoothedLatency;
-            point = this.smoothedLatency;
-        }
-
-        this.latencyHistory.push(point);
+        this.latencyHistory.push(latency);
         if (this.latencyHistory.length > this.maxHistoryLength) {
             this.latencyHistory.shift();
         }
@@ -515,8 +499,5 @@ const DEFAULT_SETTINGS: ResolvedLatencySettings = {
     measureIntervalMs: 500,
     displayIntervalMs: 1000
 };
-
-/** Higher = react faster to changes; lower = smoother line. */
-const CHART_SMOOTHING_ALPHA = 0.35;
 
 type LatencyMethod = 'tcp' | 'ping';
