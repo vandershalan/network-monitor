@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import net from 'net';
+import dns from 'dns';
 
 @action({ UUID: "com.shalan.networkmonitor.latency" })
 export class NetworkLatencyMonitor extends SingletonAction<LatencySettings> {
@@ -25,12 +26,16 @@ export class NetworkLatencyMonitor extends SingletonAction<LatencySettings> {
     /** Most recent measurement (used when M > U to repeat the same value). */
     private lastSample: number | null = null;
     private maxHistoryLength: number = 60;
+    private maxSampleBufferLength: number = 100;
     private tempDir: string = path.join(os.tmpdir(), 'networkmonitor');
     private evenOdd = '0';
 
     private pingProcess: ReturnType<typeof spawn> | null = null;
-    private latestLatency: number = -1;
     private pingBuffer: string = '';
+    /** Cached DNS resolution for the target host (avoids paying a lookup per sample). */
+    private resolvedIp: string | null = null;
+    /** In-flight TCP measurement; rendering waits for it so canvas work doesn't inflate the sample. */
+    private inFlightMeasure: Promise<void> | null = null;
 
     constructor() {
         super();
@@ -161,19 +166,22 @@ export class NetworkLatencyMonitor extends SingletonAction<LatencySettings> {
         this.method = settings.method;
         this.sampleBuffer = [];
         this.lastSample = null;
+        this.resolvedIp = null;
     }
 
     private startMonitoring() {
-        if (this.method === 'ping') {
-            this.startContinuousPing();
-        } else {
-            this.stopPing();
-        }
-
         this.monitoring = true;
         this.sampleBuffer = [];
         this.lastSample = null;
-        void this.measureTick();
+
+        if (this.method === 'ping') {
+            // Ping samples flow directly from the ping process output; no polling loop needed.
+            this.startContinuousPing();
+        } else {
+            this.stopPing();
+            void this.measureTick();
+        }
+
         this.displayIntervalId = setInterval(() => void this.displayTick(), this.displayIntervalMs);
     }
 
@@ -194,11 +202,20 @@ export class NetworkLatencyMonitor extends SingletonAction<LatencySettings> {
         this.lastSample = null;
     }
 
+    private recordSample(value: number) {
+        this.lastSample = value;
+        this.sampleBuffer.push(value);
+        if (this.sampleBuffer.length > this.maxSampleBufferLength) {
+            this.sampleBuffer.shift();
+        }
+    }
+
     /**
      * M / U semantics (independent cadences):
-     * - M = how often we probe the network
+     * - M = how often we probe the network (TCP polling loop, or the ping process cadence)
      * - U = how often we append exactly one chart point and redraw
-     * - M ≤ U: average all samples collected during U, plot that one averaged point
+     * - M ≤ U: average all samples collected during U, plot that one averaged point;
+     *   if no fresh sample arrived (timing drift), skip the tick instead of duplicating
      * - M > U: plot the last measurement repeatedly until the next probe
      */
     private async measureTick() {
@@ -209,17 +226,20 @@ export class NetworkLatencyMonitor extends SingletonAction<LatencySettings> {
         }
 
         this.measuring = true;
-        try {
-            const latency = await this.measureLatency();
-            this.lastSample = latency;
-            this.sampleBuffer.push(latency);
-        } catch (error) {
-            streamDeck.logger.error(`Failed to measure latency: ${String(error)}`);
-            this.lastSample = -1;
-            this.sampleBuffer.push(-1);
-        } finally {
-            this.measuring = false;
-        }
+        const run = (async () => {
+            try {
+                const latency = await this.measureLatency();
+                this.recordSample(latency);
+            } catch (error) {
+                streamDeck.logger.error(`Failed to measure latency: ${String(error)}`);
+                this.recordSample(-1);
+            } finally {
+                this.measuring = false;
+                this.inFlightMeasure = null;
+            }
+        })();
+        this.inFlightMeasure = run;
+        await run;
 
         if (!this.monitoring) return;
         this.measureTimeoutId = setTimeout(() => void this.measureTick(), this.measureIntervalMs);
@@ -231,21 +251,25 @@ export class NetworkLatencyMonitor extends SingletonAction<LatencySettings> {
         let point: number;
         if (this.measureIntervalMs <= this.displayIntervalMs) {
             // Faster (or equal) measure: one averaged point per update window.
-            if (this.sampleBuffer.length > 0) {
-                point = this.averageSamples(this.sampleBuffer);
-                this.sampleBuffer = [];
-            } else if (this.lastSample != null) {
-                point = this.lastSample;
-            } else {
-                return;
-            }
+            // No fresh sample this window means timing drift — skip rather than
+            // replot the previous value (a duplicated spike looks like a longer outage).
+            if (this.sampleBuffer.length === 0) return;
+            point = this.averageSamples(this.sampleBuffer);
+            this.sampleBuffer = [];
         } else {
             // Slower measure: hold the last probe across multiple chart points.
             if (this.lastSample == null) return;
             point = this.lastSample;
+            this.sampleBuffer = [];
         }
 
         this.addLatencyToHistory(point);
+
+        // Wait for any in-flight TCP measurement before doing synchronous canvas/PNG
+        // work, so rendering doesn't delay the connect callback and inflate the sample.
+        if (this.inFlightMeasure) {
+            await this.inFlightMeasure;
+        }
 
         for (const a of this.visibleActions.values()) {
             await this.updateChart(a);
@@ -256,7 +280,7 @@ export class NetworkLatencyMonitor extends SingletonAction<LatencySettings> {
         this.latencyHistory = [];
         this.sampleBuffer = [];
         this.lastSample = null;
-        this.latestLatency = -1;
+        this.resolvedIp = null;
         this.pingBuffer = '';
     }
 
@@ -267,6 +291,8 @@ export class NetworkLatencyMonitor extends SingletonAction<LatencySettings> {
     }
 
     private startContinuousPing() {
+        if (this.pingProcess) return;
+
         const platform = os.platform();
         const intervalSec = Math.max(0.2, this.measureIntervalMs / 1000);
         const args =
@@ -288,10 +314,17 @@ export class NetworkLatencyMonitor extends SingletonAction<LatencySettings> {
 
         proc.on('close', (code: number) => {
             streamDeck.logger.info(`Ping process exited with code ${code}`);
-            this.pingProcess = null;
+            if (this.pingProcess === proc) {
+                this.pingProcess = null;
+            }
         });
     }
 
+    /**
+     * Consumes the ping output as a stream: every reply (and every timeout)
+     * becomes a sample immediately, instead of polling a "latest value" snapshot
+     * that could be stale, double-counted or skipped.
+     */
     private processPingOutput() {
         const lines = this.pingBuffer.split('\n');
         this.pingBuffer = lines.pop() || '';
@@ -300,23 +333,55 @@ export class NetworkLatencyMonitor extends SingletonAction<LatencySettings> {
             // macOS/Linux: "time=12.3 ms"
             // Windows: "time=12ms" or "time<1ms"
             const timeMatch = line.match(/time[=<]\s*(\d+\.?\d*)\s*ms/i);
-            if (!timeMatch?.[1]) continue;
+            if (timeMatch?.[1]) {
+                const pingTime = parseFloat(timeMatch[1]);
+                if (Number.isFinite(pingTime)) this.recordSample(pingTime);
+                continue;
+            }
 
-            const pingTime = parseFloat(timeMatch[1]);
-            if (Number.isFinite(pingTime)) this.latestLatency = pingTime;
+            // macOS: "Request timeout for icmp_seq 3"; Windows: "Request timed out."
+            if (/request time(?:d\s+out|out)/i.test(line)) {
+                this.recordSample(-1);
+            }
         }
     }
 
+    /**
+     * TCP latency = the minimum of a few connect attempts. The minimum is a robust
+     * RTT estimator: it sheds one-off delays from the event loop, the OS scheduler
+     * and network jitter that would otherwise inflate a single-shot measurement.
+     */
     private async measureLatency(): Promise<number> {
-        if (this.method === 'ping') {
-            return this.latestLatency;
-        }
+        const host = await this.resolveTargetIp();
+        if (!host) return -1;
 
-        return this.measureTcpConnectMs({
-            host: this.targetHost,
-            port: this.tcpPort,
-            timeoutMs: this.timeoutMs
-        });
+        let best = -1;
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const ms = await this.measureTcpConnectMs({
+                host,
+                port: this.tcpPort,
+                timeoutMs: this.timeoutMs
+            });
+            // A failed attempt means the network is down or unstable — report it
+            // instead of retrying (retries would stall the loop for timeoutMs each).
+            if (ms < 0) break;
+            best = best < 0 ? ms : Math.min(best, ms);
+        }
+        return best;
+    }
+
+    private async resolveTargetIp(): Promise<string | null> {
+        if (net.isIP(this.targetHost)) return this.targetHost;
+        if (this.resolvedIp) return this.resolvedIp;
+
+        try {
+            const { address } = await dns.promises.lookup(this.targetHost);
+            this.resolvedIp = address;
+            return address;
+        } catch (error) {
+            streamDeck.logger.error(`DNS lookup failed for ${this.targetHost}: ${String(error)}`);
+            return null;
+        }
     }
 
     private measureTcpConnectMs(opts: { host: string; port: number; timeoutMs: number }): Promise<number> {
@@ -346,7 +411,9 @@ export class NetworkLatencyMonitor extends SingletonAction<LatencySettings> {
             socket.once('timeout', () => finish(-1));
             socket.once('error', () => finish(-1));
 
-            socket.connect(port, host);
+            // autoSelectFamily (Happy Eyeballs) can add up to ~250ms per attempt
+            // on networks with broken IPv6 — we connect to an already-resolved IP.
+            socket.connect({ port, host, autoSelectFamily: false });
         });
     }
 
@@ -391,8 +458,10 @@ export class NetworkLatencyMonitor extends SingletonAction<LatencySettings> {
         const chartDataUrl = await this.generateLatencyChart();
         await action.setImage(chartDataUrl);
 
-        const currentLatency = this.latencyHistory[this.latencyHistory.length - 1];
-        const displayText = currentLatency === -1 ? "ERR" : `${Math.round(currentLatency)} ms`;
+        // Title shows the last raw sample (directly comparable with a terminal ping);
+        // the chart keeps the averaged points.
+        const currentLatency = this.lastSample ?? this.latencyHistory[this.latencyHistory.length - 1];
+        const displayText = currentLatency == null || currentLatency === -1 ? "ERR" : `${Math.round(currentLatency)} ms`;
         await action.setTitle(displayText);
     }
 
